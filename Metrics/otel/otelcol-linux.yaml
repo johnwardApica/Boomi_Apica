@@ -1,0 +1,80 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      cpu:
+      memory:
+      disk:
+      network:
+      load:
+      filesystem:
+      paging:
+      processes:
+
+  jmx:
+    jar_path: /home/ubuntu/boomi/opentelemetry-jmx-metrics.jar
+    endpoint: service:jmx:rmi:///jndi/rmi://localhost:5002/jmxrmi
+    target_system: jvm
+    collection_interval: 10s
+    otlp:
+      headers:
+        service-name: jmx-stats-collector
+
+processors:
+  batch:
+  attributes/otlpflowattrs:
+    actions:
+      - key: "namespace"
+        action: "insert"
+        value: "otlplogs"
+      - key: "application"
+        action: "insert"
+        value: "default_app"
+
+exporters:
+  debug:
+    verbosity: detailed
+  prometheus:
+    endpoint: 0.0.0.0:9464
+  apica/logs:
+    endpoint: http://ec2-52-212-245-244.eu-west-1.compute.amazonaws.com/v1/json_batch
+    tls:
+      insecure: true
+    headers:
+      Authorization: "Bearer REPLACE_WITH_AUTH_TOKEN_"
+  jaeger/apicatraces:
+    endpoint: ec2-52-212-245-244.eu-west-1.compute.amazonaws.com:14250
+    tls:
+      insecure: true
+  prometheusremotewrite/apicametrics:
+    endpoint: "http://ec2-52-212-245-244.eu-west-1.compute.amazonaws.com/api/v1/receive"
+    external_labels:
+      machine_name: REPLACE_WITH_MACHINE_NAME
+    resource_to_telemetry_conversion:
+      enabled: true # Convert resource attributes to metric labels
+
+extensions:
+
+service:
+  extensions:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [jaeger/apicatraces]
+    metrics/jmx:
+      receivers: [jmx]
+      exporters: [debug, prometheus]
+    metrics:
+      receivers: [otlp,hostmetrics]
+      exporters: [prometheus]
+    metrics/out:
+      receivers: [hostmetrics]
+      exporters: [prometheusremotewrite/apicametrics]
+    logs:
+      receivers: [otlp]
+      processors: [attributes/otlpflowattrs]
+      exporters: [apica/logs]
