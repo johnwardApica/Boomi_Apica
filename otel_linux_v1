@@ -1,0 +1,210 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+  hostmetrics:
+    collection_interval: 60s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.linux.memory.available:
+            enabled: true
+          system.memory.utilization:
+            enabled: true
+      disk:
+      network:
+      load:
+      filesystem:
+        include_virtual_filesystems: true
+        metrics:
+          system.filesystem.inodes.usage:
+            enabled: true
+          system.filesystem.usage:
+            enabled: true
+          system.filesystem.utilization:
+            enabled: true
+      paging:
+      processes:
+  prometheus:
+      config:
+        scrape_configs:
+          - job_name: 'prom-metrics-collector'
+            scrape_interval: 60s
+            static_configs:
+              - targets: ['0.0.0.0:9464']
+
+  filelog/http_server:
+    include: [ '/home/ubuntu/Boomi_AtomSphere/Atom/Atom_Demo_Atom_Linux_2/logs/*shared_http_server.log' ]
+    exclude_older_than: 4h
+    operators:
+      - type: regex_parser
+        regex: '^(?<ipaddress>\d+\.\d+\.\d+.\d+) - (?<hostname>[^ ]*) \[(?<timestamp>[^\]]*)\] \"(?<request>[^\"]*)\" (?<status_code>[^ ]*) (?<msg>.*)$'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%d/%b/%Y:%H:%M:%S %z'
+        severity:
+          parse_from: attributes.status_code
+          mapping:
+            info:
+              - 1xx
+              - 2xx
+              - 3xx
+            warn:
+              - 4xx
+            error:
+              - 5xx
+    retry_on_failure:
+      enabled: true
+
+  filelog/container:
+    include: [ '/home/ubuntu/Boomi_AtomSphere/Atom/Atom_Demo_Atom_Linux_1/logs/*.container.*.log' ]
+    exclude_older_than: 4h
+    operators:
+      - type: regex_parser
+        regex: '^(?<timestamp>[^ ]* [^ ]* [^ ]* [^ ]* [^ ]* [^ ]*) (?<loglevel>[^ ]*)[ ]*\[(?<javaprog>[^ ]*) (?<method>[^ ]*)\] (?<msg>.*)$'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%b %g, %Y %l:%M:%S %p %Z'
+        severity:
+          parse_from: attributes.loglevel
+          mapping:
+            info:
+              - INFO
+              - FINE
+            warn:
+              - WARN
+              - WARNING
+            error:
+              - ERROR
+              - FATAL
+              - EMERGENCY
+    retry_on_failure:
+      enabled: true
+
+  filelog/molecule:
+    include: [ '/home/ubuntu/molecule_shared/logs/*.container.*.log' ]
+    exclude_older_than: 4h
+    operators:
+      - type: regex_parser
+        regex: '^(?<timestamp>[^ ]* [^ ]* [^ ]* [^ ]* [^ ]* [^ ]*) (?<loglevel>[^ ]*)[ ]*\[(?<javaprog>[^ ]*) (?<method>[^ ]*)\] (?<msg>.*)$'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%b %g, %Y %l:%M:%S %p %Z'
+        severity:
+          parse_from: attributes.loglevel
+          mapping:
+              info:
+                - INFO
+                - FINE
+              warn:
+                - WARN
+                - WARNING
+              error:
+                - ERROR
+                - FATAL
+                - EMERGENCY
+    retry_on_failure:
+      enabled: true
+
+  filelog/execution:
+    include: [ '{{$ .Agent.data.apicalogs.execution.include }}' ]
+    exclude_older_than: 4h
+    multiline:
+      line_start_pattern: '\<LogEvent '
+      omit_pattern: true
+    operators:
+      - type: regex_parser
+        regex: 'level=\"(?<loglevel>[^\"]*)\" time=\"(?<timestamp>[^\"]*)\".*\<Message\>(?<msg>[^\<]*)\<\/Message\>.*'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%FT%T%z'
+        severity:
+          parse_from: attributes.loglevel
+          mapping:
+            info:
+              - INFO
+              - FINE
+            warn:
+              - WARN
+              - WARNING
+            error:
+              - ERROR
+              - FATAL
+              - EMERGENCY
+    retry_on_failure:
+      enabled: true
+
+processors:
+  resource/os:
+    attributes:
+      - key: ostype
+        value: "linux"
+        action: upsert
+  resource/boomi:
+    attributes:
+      - key: host.name
+        value: "demo-boomi-linux2"
+        action: upsert
+      - key: customer.id
+        value: "123456"
+        action: upsert
+      - key: runtime.id
+        value: "run_4321"
+        action: upsert
+  resource/apicalogs:
+    attributes:
+      - key: namespace
+        action: insert
+        value: "otlplogs"
+      - key: application
+        action: insert
+        value: "boomi"
+exporters:
+  debug:
+    verbosity: detailed
+  prometheus:
+    endpoint: 0.0.0.0:9464
+  apica/logs:
+    endpoint: "https://datafabric-demo.apica.io/v1/json_batch"
+    tls:
+      insecure: false
+      insecure_skip_verify: true
+    headers:
+      Authorization: "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOltdLCJhdWQiOiJsb2dpcS1jbGllbnRzIiwianRpIjoiMzM5Mjc1MzgtMDk0NS00N2ZlLTg0YjYtYTBhZDNjYjMyOWRkIiwiaWF0IjoxNzIxMDU4NDI5LCJpc3MiOiJsb2dpcS1jb2ZmZWUtc2VydmVyIiwibmJmIjoxNzIxMDU4NDI5LCJzdWIiOiJmbGFzaC1hZG1pbkBmb28uY29tIiwiVWlkIjoyLCJyb2xlIjoiYWRtaW4ifQ.nYIHyFdhusjr2tR04duLmqvOWwWbCWGKwcUjQYnociFlqVyEKXclssQCh7Ld8CAw5lEPWeoarsB8Cub1IbU6_3RrUfy99Yu77INkELOXS2f_in7BhkSgnkaSAppcoViL2FVfqSErSfTjYbPoisp_y2LYfFLncaxxhrQhIEgXKROJP17RdfRe87ybNXqP_P-R3S5HThp8DZ2XPz1uHKzv7VplBzIc6Nk93lSEaAPtkgkdOd4y600kzVi-u0EbxnjwdpC4P6PtlEFEG0HOLLjrZmzIaBzyEWOyBBGBxZPu-h_EEaYOxvBN5ugN6SSke7lP5HNof-8kk3E9MIsYivnThg"
+    sending_queue:
+      enabled: true
+      queue_size: 1_000_000
+    retry_on_failure:
+      enabled: true
+  prometheusremotewrite/apicametrics:
+    endpoint: "https://datafabric-demo.apica.io/api/v1/receive"
+    tls:
+      insecure: false
+      insecure_skip_verify: true
+    external_labels:
+      customer: "123456"
+      runtime: "run_4321"
+      hostname: "demo-boomi-linux2"
+      ostype: "linux"
+    resource_to_telemetry_conversion:
+      enabled: true # Convert resource attributes to metric labels
+extensions:
+service:
+  extensions:
+  pipelines:
+    metrics:
+      receivers: [otlp, hostmetrics]
+      exporters: [prometheus]
+    metrics/out:
+      receivers: [prometheus]
+      processors: [resource/os, resource/boomi]
+      exporters: [prometheusremotewrite/apicametrics]
+    logs/out:
+      receivers: [filelog/http_server, filelog/container, filelog/molecule]
+      processors: [resource/os, resource/boomi, resource/apicalogs]
+      exporters: [apica/logs]
